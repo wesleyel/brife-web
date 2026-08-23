@@ -8,7 +8,7 @@
 2. **插件编译产物提交进仓库**，CI 上不 clone、不 build 插件
 3. **给 Obsidian Bases 加了 `stream` 视图**：中间栏是全文信息流，右侧栏是筛选/排序控件
 
-部署链路跑在 **brife 仓库**里：笔记一提交就触发 workflow，它 clone 本仓库当构建工具，编译完直接上传 CF Pages。所以本仓库里没有任何笔记内容，CF 也不需要访问私有的 brife。
+部署由 **brife 仓库**驱动：Cloudflare 连的是 brife，它的 `build.sh` 把本仓库 clone 下来当构建工具，编译完由 wrangler 发布。所以本仓库里没有任何笔记内容，也不需要知道笔记在哪。
 
 ---
 
@@ -45,8 +45,7 @@ content/          从 vault 同步来的构建输入（不提交，每次构建�
 overlay/          只属于站点、不属于 vault 的文件，覆盖在同步结果之上
 plugins/          本地 Quartz 插件源码 + 编译产物 dist/
 scripts/          同步、插件编译、.base 归一化、CF 资产拷贝
-ci/               给 brife 仓库用的 workflow 模板
-cf/               Cloudflare Pages 的 _headers
+cf/               Cloudflare 静态资源的 _headers
 .quartz/          插件索引与软链接（提交进仓库，见下）
 quartz/           Quartz 5 上游源码（upstream remote 保留着，可以 merge 更新）
 ```
@@ -57,7 +56,9 @@ quartz/           Quartz 5 上游源码（upstream remote 保留着，可以 mer
 
 ## 一、内容同步
 
-`scripts/sync-content.sh` 用 rsync 把 vault 拷进 `content/`，然后把 `overlay/` 盖上去。来源就是一个目录：本地是 iCloud 里的 Obsidian 目录，CI 上是 brife 仓库的 checkout 目录（`VAULT=$GITHUB_WORKSPACE/vault`）。
+`scripts/sync-content.sh` 用 rsync 把 vault 拷进 `content/`，然后把 `overlay/` 盖上去。来源就是一个目录：本地是 iCloud 里的 Obsidian 目录，CI 上是 brife 仓库的 checkout 目录（`VAULT=$PWD`，由那边的 `build.sh` 传进来）。
+
+exclude 列表里除了 vault 自己的东西（`.obsidian/`、`.trash/`…），还挡掉了 brife 根目录上的部署脚手架：`build.sh`、`wrangler.jsonc`、`.node-version`，以及 `build.sh` clone 出来的 `.site/`。不挡的话，那个 clone 连同它的 `node_modules` 会被一起同步进 `content/`。
 
 rsync 带 `-t` 保留 mtime：`content/` 不是 git 仓库，`created-modified-date` 插件取不到 git 时间，会退回文件系统时间。
 
@@ -164,42 +165,48 @@ views:
 
 ## 四、部署
 
-CI 跑在 **brife 仓库**里，不是这里。理由：笔记一提交就该重新部署，而工作流跑在 brife 里的话内容天然就在工作区，不用为了拿私有仓库的内容再配一套凭据。
+Cloudflare 那边用的是 **Workers Builds**（不是 Pages），Git 直连 **brife** 仓库。理由：笔记一提交就该重新部署，而构建跑在 brife 里的话内容天然就在工作区，不用为了拿私有仓库的内容再配一套凭据。
 
 ```
 brife (push)
-  └─ .github/workflows/deploy.yml
-       ├─ checkout brife          → vault/
-       ├─ checkout brife-web      → site/
-       ├─ npm ci && npm run build （VAULT=…/vault）
-       └─ wrangler pages deploy site/public
+  └─ Cloudflare Workers Builds
+       ├─ 构建命令  bash build.sh
+       │              ├─ git clone brife-web  → .site/
+       │              ├─ npm ci
+       │              └─ VAULT=$PWD npm run build  → .site/public
+       └─ 部署命令  npx wrangler deploy      （wrangler.jsonc 把 .site/public 作为静态资源）
 ```
 
-### 步骤
+brife 仓库根目录需要三个文件，都已经写好了：
 
-1. **把本仓库推到 GitHub。** 里面没有任何笔记内容，设成公开仓库最省事（省掉下面的 `BRIFE_WEB_TOKEN`）。
+| 文件 | 作用 |
+| --- | --- |
+| `build.sh` | clone 本仓库并编译，产物在 `.site/public` |
+| `wrangler.jsonc` | 纯静态资源 Worker，`assets.directory` 指向 `.site/public` |
+| `.node-version` | `22`，Quartz 的最低要求 |
 
-2. **建 CF Pages 项目**（一次性，直接上传模式，不接 Git）：
+Cloudflare 项目设置（截图里那几栏）：
 
-   ```bash
-   npx wrangler pages project create brife --production-branch=main
-   ```
+| 项 | 值 |
+| --- | --- |
+| 构建命令 | `bash build.sh` |
+| 部署命令 | `npx wrangler deploy` |
+| 版本命令 | `npx wrangler versions upload` |
+| 根目录 | `/` |
 
-3. **把 `ci/brife-deploy.yml` 复制到 brife 仓库**的 `.github/workflows/deploy.yml`。
+几个要注意的：
 
-4. **在 brife 仓库配 secrets：**
+- **`wrangler.jsonc` 里的 `name` 必须和 Cloudflare 上那个 Worker 同名**，否则 `wrangler deploy` 会另建一个 Worker，页面还是空的。
+- `cf/_headers` 由 `postbuild` 拷进 `public/`。Workers 静态资源原生认 `_headers` / `_redirects`，会解析成响应头而不是当文件发出去。
+- 404 交给 `not_found_handling: "404-page"`，用 Quartz 生成的 `404.html`。
+- **改本仓库不会触发部署** —— 触发器是 brife 的 push。改完站点想立刻生效，去 brife 那边空提交一次，或在 Cloudflare 控制台点重新部署。
 
-   | Secret | 说明 |
-   | --- | --- |
-   | `CLOUDFLARE_API_TOKEN` | 权限选 “Cloudflare Pages: Edit” |
-   | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 控制台右下角 |
-   | `BRIFE_WEB_TOKEN` | 只有 brife-web 是私有仓库时才需要（有 repo 读权限的 PAT） |
+本地复现整条链路（在 brife 仓库里）：
 
-5. push 一次笔记，或者在 Actions 里手动 `workflow_dispatch` 触发。
-
-改站点本身（样式、插件、配置）只要往 brife-web 推就行，但**那不会自动触发部署**——部署由 brife 的 push 触发。想立刻生效就去 brife 的 Actions 里手动跑一次。
-
-`cf/_headers` 会由 `postbuild` 钩子拷进 `public/`：给带内容哈希的 css/js 设永久缓存，题图设一天。
+```bash
+bash build.sh                                    # 从 GitHub 拉 brife-web
+SITE_REPO=/path/to/local/brife-web bash build.sh # 用本地副本调试
+```
 
 站点域名定了之后记得改 `quartz.config.yaml` 里的 `baseUrl`（现在是占位的 `brife.pages.dev`）。
 
