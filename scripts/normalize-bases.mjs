@@ -131,8 +131,7 @@ async function* walk(dir) {
   }
 }
 
-async function main() {
-  const contentDir = path.join(root, "content")
+export async function normalizeAll(contentDir = path.join(root, "content")) {
   let touched = 0
   let total = 0
 
@@ -157,8 +156,9 @@ async function main() {
   }
 
   console.log(`.base 归一化：${total} 个文件，改写 ${touched} 个`)
+  return touched
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  await main()
+  await normalizeAll()
 }
