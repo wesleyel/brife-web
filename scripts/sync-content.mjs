@@ -55,11 +55,34 @@ function isExcluded(name) {
   return EXCLUDED_NAMES.has(name) || name.endsWith(".pyc")
 }
 
-/** fs.cp 的 filter：返回 false 时整棵子树都不拷 */
-function makeFilter(src) {
-  return (from) => {
-    if (from === src) return true
-    return !isExcluded(path.basename(from))
+/**
+ * 递归拷贝，跳过 EXCLUDED_NAMES。
+ *
+ * 没用 fs.cp：CI 上 brife-web 是被 clone 进 vault 内部的（VAULT/.site/），
+ * 于是目标 content/ 正好是源目录的子目录，fs.cp 会直接 ERR_FS_CP_EINVAL
+ * ——它的自嵌套检查早于 filter，排除了 .site 也没用。
+ *
+ * mtime 要手工带过去：content/ 不是 git 仓库，created-modified-date 插件
+ * 取不到 git 时间会退回文件系统时间，丢了 mtime 日期就全变成构建时刻。
+ */
+async function copyTree(src, dest, skip) {
+  await fs.mkdir(dest, { recursive: true })
+  for (const entry of await fs.readdir(src, { withFileTypes: true })) {
+    if (isExcluded(entry.name)) continue
+
+    const from = path.join(src, entry.name)
+    if (from === skip) continue
+
+    const to = path.join(dest, entry.name)
+    if (entry.isDirectory()) {
+      await copyTree(from, to, skip)
+    } else if (entry.isSymbolicLink()) {
+      await fs.symlink(await fs.readlink(from), to).catch(() => {})
+    } else if (entry.isFile()) {
+      await fs.copyFile(from, to)
+      const st = await fs.stat(from)
+      await fs.utimes(to, st.atime, st.mtime)
+    }
   }
 }
 
@@ -89,18 +112,12 @@ async function main() {
 
   // 全量重来，省掉 rsync --delete 那套差异计算
   await fs.rm(dest, { recursive: true, force: true })
-  // preserveTimestamps：content/ 不是 git 仓库，created-modified-date 插件
-  // 取不到 git 时间会退回文件系统时间，mtime 丢了日期就全变成构建时刻
-  await fs.cp(vault, dest, {
-    recursive: true,
-    preserveTimestamps: true,
-    filter: makeFilter(path.resolve(vault)),
-  })
+  await copyTree(path.resolve(vault), dest, dest)
 
   // overlay/ 里是只属于站点、不属于 vault 的文件（首页、站点专用 .base 视图等），
   // 覆盖在同步结果之上
   if (await fs.stat(overlay).catch(() => null)) {
-    await fs.cp(overlay, dest, { recursive: true, preserveTimestamps: true, force: true })
+    await copyTree(overlay, dest, dest)
   }
 
   // .base 里的中文属性名必须改写成 note["…"]，否则 bases 的表达式引擎静默失效
