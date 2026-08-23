@@ -1,14 +1,17 @@
 .DS_Store
-.gitignore
-node_modules
-public
-prof
+node_modules/
+public/
+prof/
 tsconfig.tsbuildinfo
-.obsidian
-.quartz-cache
-private/
-.replit
-replit.nix
-.quartz/
-quartz/cli/tui/dist/
+.quartz-cache/
 .turbo/
+quartz/cli/tui/dist/
+
+# content/ 是构建产物，不提交：每次构建由 scripts/sync-content.sh 从 vault 重新生成。
+# 注意：因为写在这里，quartz/util/glob.ts 的 gitignore 必须关掉（那里有说明）。
+content/
+
+# .quartz/ 是插件编译产物，「故意」提交进仓库 —— 见 README「为什么 .quartz/ 要提交」
+# 只忽略插件目录内的开发垃圾
+.quartz/plugins/*/node_modules/.cache/
+.quartz/plugins/*/.turbo/

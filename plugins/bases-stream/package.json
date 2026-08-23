@@ -1,0 +1,51 @@
+{
+  "name": "@brife/bases-stream",
+  "version": "0.1.0",
+  "description": "在 @quartz-community/bases-page 之上增加全文 stream(feed) 视图与右侧栏 filter/sort 控件",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js"
+    },
+    "./components": {
+      "import": "./dist/components/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "sideEffects": true,
+  "peerDependencies": {
+    "preact": "^10.0.0"
+  },
+  "quartz": {
+    "name": "bases-stream",
+    "displayName": "Bases Stream",
+    "description": "Bases 的全文信息流视图 + 右侧栏筛选排序",
+    "category": [
+      "transformer",
+      "component"
+    ],
+    "version": "0.1.0",
+    "quartzVersion": ">=5.0.0",
+    "dependencies": [],
+    "defaultOrder": 85,
+    "defaultEnabled": true,
+    "defaultOptions": {
+      "bodyProperty": "_bsBody"
+    },
+    "components": {
+      "BasesControls": {
+        "displayName": "Bases 筛选/排序",
+        "defaultPosition": "right",
+        "defaultPriority": 5
+      }
+    },
+    "optionSchema": {
+      "bodyProperty": {
+        "type": "string"
+      }
+    }
+  }
+}

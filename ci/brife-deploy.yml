@@ -1,0 +1,71 @@
+# 这个文件属于 brife 仓库，不是 brife-web。
+# 复制到 brife/.github/workflows/deploy.yml 即可。
+#
+# 思路：工作流跑在 brife 里（笔记一提交就触发，内容天然就在工作区），
+# 再 clone brife-web 这套构建工具，编译完直接上传到 Cloudflare Pages。
+# brife-web 不需要知道笔记在哪，CF 也不需要访问私有的 brife 仓库。
+#
+# 需要在 brife 仓库配的 secrets：
+#   CLOUDFLARE_API_TOKEN   权限选 "Cloudflare Pages: Edit"
+#   CLOUDFLARE_ACCOUNT_ID  Cloudflare 控制台右下角能看到
+#   BRIFE_WEB_TOKEN        仅当 brife-web 是私有仓库时需要（有 repo 读权限的 PAT）；
+#                          brife-web 里不含任何笔记内容，设成公开仓库就能删掉这一项
+
+name: Deploy site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 连续提交笔记时只保留最后一次部署
+concurrency:
+  group: deploy-site
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout vault
+        uses: actions/checkout@v4
+        with:
+          path: vault
+
+      - name: Checkout brife-web
+        uses: actions/checkout@v4
+        with:
+          repository: wesleyel/brife-web
+          path: site
+          # brife-web 公开的话这行可以删
+          token: ${{ secrets.BRIFE_WEB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install
+        working-directory: site
+        run: npm ci
+
+      # 插件编译产物已经在 brife-web 仓库里，这里不 clone 也不 build 插件，
+      # prebuild 只是重建软链接 + 重新生成插件索引，全程离线
+      - name: Build
+        working-directory: site
+        env:
+          VAULT: ${{ github.workspace }}/vault
+        run: npm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: site
+          command: >-
+            pages deploy public
+            --project-name=brife
+            --branch=main
+            --commit-dirty=true

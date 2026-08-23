@@ -1,0 +1,97 @@
+## 站点专用的 Bases 视图，不在 vault 里。
+## vault 的 exercises/错题.base 由 Obsidian 手工维护，这里不动它；
+## overlay/ 会覆盖在同步结果之上，只影响站点。
+filters:
+  and:
+    # exercises/math.md 是错题索引，不是题目本身，用有没有「卷子」字段把它挡掉
+    - file.hasProperty("卷子")
+    - or:
+        - file.inFolder("exercises/math")
+        - file.inFolder("exercises/408")
+properties:
+  卷子:
+    displayName: 卷子
+  题号:
+    displayName: 题号
+  知识点:
+    displayName: 知识点
+  错因:
+    displayName: 错因
+  评分:
+    displayName: 评分
+  复习:
+    displayName: 复习次数
+views:
+  - type: stream
+    name: 信息流
+    # bases-stream 的扩展字段：
+    #   date   卡片上显示哪个日期
+    #   facets 右侧栏出哪些筛选控件（不写就按 order 里的列自动推断）
+    date: 录入
+    chips:
+      - 卷子
+      - 知识点
+      - 错因
+      - 评分
+    facets:
+      - 卷子
+      - 知识点
+      - 错因
+      - 评分
+      - 复习
+    order:
+      - 卷子
+      - 题号
+      - 知识点
+      - 错因
+      - 评分
+      - 复习
+    groupBy:
+      property: 卷子
+      direction: DESC
+    sort:
+      - property: 录入
+        direction: DESC
+      - property: 题号
+        direction: ASC
+  - type: table
+    name: 表格
+    order:
+      - file.name
+      - 卷子
+      - 题号
+      - 知识点
+      - 错因
+      - 评分
+      - 复习
+      - 录入
+    sort:
+      - property: 卷子
+        direction: DESC
+      - property: 题号
+        direction: ASC
+  - type: stream
+    name: 待复习
+    date: 录入
+    chips:
+      - 卷子
+      - 知识点
+      - 错因
+      - 评分
+    filters:
+      and:
+        - 复习 == 0
+    facets:
+      - 卷子
+      - 知识点
+      - 错因
+      - 评分
+    order:
+      - 卷子
+      - 题号
+      - 知识点
+      - 错因
+      - 评分
+    sort:
+      - property: 录入
+        direction: DESC
