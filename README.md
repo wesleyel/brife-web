@@ -56,11 +56,16 @@ quartz/           Quartz 5 上游源码（upstream remote 保留着，可以 mer
 
 ## 一、内容同步
 
-`scripts/sync-content.sh` 用 rsync 把 vault 拷进 `content/`，然后把 `overlay/` 盖上去。来源就是一个目录：本地是 iCloud 里的 Obsidian 目录，CI 上是 brife 仓库的 checkout 目录（`VAULT=$PWD`，由那边的 `build.sh` 传进来）。
+`scripts/sync-content.mjs` 把 vault 拷进 `content/`，然后把 `overlay/` 盖上去。来源就是一个目录：本地是 iCloud 里的 Obsidian 目录，CI 上是 brife 仓库的 checkout 目录（`VAULT=$PWD`，由那边的 `build.sh` 传进来）。
 
-exclude 列表里除了 vault 自己的东西（`.obsidian/`、`.trash/`…），还挡掉了 brife 根目录上的部署脚手架：`build.sh`、`wrangler.jsonc`、`.node-version`，以及 `build.sh` clone 出来的 `.site/`。不挡的话，那个 clone 连同它的 `node_modules` 会被一起同步进 `content/`。
+排除列表里除了 vault 自己的东西（`.obsidian/`、`.trash/`…），还挡掉了 brife 根目录上的部署脚手架：`build.sh`、`wrangler.jsonc`、`.node-version`，以及 `build.sh` clone 出来的 `.site/`。不挡的话，那个 clone 连同它的 `node_modules` 会被一起同步进 `content/`。
 
-rsync 带 `-t` 保留 mtime：`content/` 不是 git 仓库，`created-modified-date` 插件取不到 git 时间，会退回文件系统时间。
+会手工把 mtime 带过去：`content/` 不是 git 仓库，`created-modified-date` 插件取不到 git 时间会退回文件系统时间，丢了 mtime 日期就全变成构建时刻。
+
+**这里为什么不用现成的工具：**
+
+- **不用 rsync** —— Cloudflare 的构建容器里没有。整条 CI 链路现在只依赖 `bash` / `git` / `node` / `npm`。
+- **不用 `fs.cp`** —— CI 上 brife-web 是 clone 进 vault 内部的（`VAULT/.site/`），目标 `content/` 正好是拷贝源的子目录，`fs.cp` 会直接报 `ERR_FS_CP_EINVAL`；它的自嵌套检查跑在 `filter` 之前，把 `.site` 排除掉也没用。所以是手写的递归拷贝。
 
 ### 改过上游一行：`quartz/util/glob.ts`
 
@@ -225,6 +230,7 @@ SITE_REPO=/path/to/local/brife-web bash build.sh # 用本地副本调试
 - **`layout.byPageType.*.exclude` 要写完整包名**：它匹配的是 `extractPluginName(source)`，对 npm 插件来说就是 `@quartz-community/graph` 这样的完整字符串，写短名 `graph` 不生效（上游默认配置里的 `exclude: [reader-mode]` 同样是失效的）。
 - **`byPageType.*.positions` 只能清空，不能添加**：非空数组会被忽略。想让组件只在某类页面出现，得靠组件自己判断然后返回 `null`，或者像本插件这样交给客户端决定。
 - **`file.inFolder("exercises/math")` 会连 `exercises/math.md` 一起匹配**：路径前缀匹配。用 `file.hasProperty("卷子")` 之类的条件把索引文件挡掉。
+- **CF 构建容器里没有 rsync**：能指望的只有 `bash` / `git` / `node` / `npm`，同步脚本因此是纯 Node 的。往 `build.sh` 里加命令前先想想容器里有没有。
 - **dev server 不 watch 插件**：`quartz build --serve` 只监听 `content/`，改了 `plugins/` 下的代码要重跑 `npm run plugins:build` 并重启 dev server。
 
 ---
