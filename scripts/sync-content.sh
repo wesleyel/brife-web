@@ -4,7 +4,10 @@
 # content/ 是构建产物，不提交进仓库，每次构建重新生成。来源就是一个目录：
 #
 #   本地开发   默认的 iCloud Obsidian 目录
-#   CI         brife 仓库的 checkout 目录（工作流跑在 brife 里，见 ci/brife-deploy.yml）
+#   CI         brife 仓库的 checkout 目录（构建跑在 brife 里，由它的 build.sh 驱动）
+#
+# 下面的 exclude 列表里除了 vault 自己的东西，还挡掉了 brife 仓库根目录上的
+# 部署脚手架（build.sh / wrangler.jsonc / .site/ …）——那些不是笔记，不该进站点。
 #
 #   ./scripts/sync-content.sh
 #   VAULT=/path/to/vault ./scripts/sync-content.sh
@@ -35,6 +38,15 @@ rsync -a --delete --delete-excluded -t \
   --exclude '*.pyc' \
   --exclude 'AGENTS.md' \
   --exclude 'study-organizer.md' \
+  --exclude 'README.md' \
+  --exclude 'build.sh' \
+  --exclude 'wrangler.json' \
+  --exclude 'wrangler.jsonc' \
+  --exclude 'wrangler.toml' \
+  --exclude '.node-version' \
+  --exclude '.site/' \
+  --exclude 'node_modules/' \
+  --exclude 'public/' \
   "$VAULT/" "$DEST/"
 
 # overlay/ 里是只属于站点、不属于 vault 的文件（首页、站点专用 .base 视图等），
